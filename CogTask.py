@@ -30,17 +30,17 @@ class CogTask(commands.Cog, name=S.COG.NAME, description=S.COG.DESC):
     async def sendAlert(user: discord.User, alert: str):
         await user.send(S.INFO.ALERT(alert))
     
-    @commands.group(S.CREATE.meta, invoke_without_command=True)
+    @commands.group(**S.CREATE.meta, invoke_without_command=True)
     async def create(self, ctx: commands.Context, *, args: str):
         if not ctx.invoked_subcommand:
             raise TaskException(S.ERR.INVALID_SUBCOMMAND(args[0]))
     
-    @create.command(S.EVENT.meta)
+    @create.command(**S.EVENT.meta)
     async def event(self, ctx: commands.Context, *, args: str=None):
         if not args:
             raise TaskException(S.ERR.NO_ENTRY)
         
-        parser = Parser(args)
+        parser = Parser(args.split(" "))
         timezone = self.getTZForUser(ctx.author)
         if not timezone:
             raise TaskException(S.ERR.NO_TZ)
@@ -57,7 +57,7 @@ class CogTask(commands.Cog, name=S.COG.NAME, description=S.COG.DESC):
         except UnknownTimeZoneError:
             return None
 
-    @commands.command(S.TIMEZONE.meta)
+    @commands.command(**S.TIMEZONE.meta)
     async def timezone(self, ctx: commands.Context, tz: Optional[str]=None):
         if not tz:
             tzObj = self.getTZForUser(ctx.author)
@@ -76,7 +76,7 @@ class CogTask(commands.Cog, name=S.COG.NAME, description=S.COG.DESC):
             json.dump(self.tzprefs, f)
         await ctx.send(S.INFO.TZ_SUCCESS(tzObj.zone))
 
-    @commands.command(S.NOW.meta)
+    @commands.command(**S.NOW.meta)
     async def now(self, ctx: commands.Context):
         tzObj = self.getTZForUser(ctx.author)
         if not tzObj:
