@@ -7,14 +7,15 @@ from pytz import UnknownTimeZoneError, timezone
 from typing import Optional
 
 import sources.text as T
-from Taskmaster import Event, Parser, Taskmaster, TaskException
+from Taskmaster import Task, Parser, Taskmaster, TaskException
 
 S = T.TASK
 UTC = timezone("UTC")
 _FORMAT = "%I:%M:%S%p, %b %d (%a), %Y"
 
 class CogTask(commands.Cog, name=S.COG.NAME, description=S.COG.DESC):
-    def __init__(self, taskmaster: Optional[Taskmaster]):
+    def __init__(self, bot: commands.Bot, taskmaster: Optional[Taskmaster]):
+        self.bot = bot
         self.taskmaster = Taskmaster() if not taskmaster else taskmaster
         with open(S.PATH.TZPREFS, "r") as f:
             self.tzprefs: dict[str, str] = json.load(f)
@@ -24,7 +25,9 @@ class CogTask(commands.Cog, name=S.COG.NAME, description=S.COG.DESC):
     @dasks.loop(seconds=1)
     async def update(self):
         time = dt.datetime.now(UTC)
-        await self.taskmaster.update(time)
+        firedTasks = await self.taskmaster.update(time)
+        for task in firedTasks:
+            pass
     
     @staticmethod
     async def sendAlert(user: discord.User, alert: str):
@@ -36,7 +39,7 @@ class CogTask(commands.Cog, name=S.COG.NAME, description=S.COG.DESC):
             raise TaskException(S.ERR.INVALID_SUBCOMMAND(args[0]))
     
     @create.command(**S.EVENT.meta)
-    async def event(self, ctx: commands.Context, *, args: str=None):
+    async def task(self, ctx: commands.Context, *, args: str=None):
         if not args:
             raise TaskException(S.ERR.NO_ENTRY)
         
@@ -47,9 +50,15 @@ class CogTask(commands.Cog, name=S.COG.NAME, description=S.COG.DESC):
         eventTime = parser.getTimeFromToday(dt.datetime.now(timezone))
         message = parser.getMessage()
         
-        task = Event(eventTime.astimezone(UTC), CogTask.sendAlert, [ctx.author, message])
-        self.taskmaster.addTask(task)
+        task = Task(eventTime.astimezone(UTC), CogTask.sendAlert, [ctx.author, message])
+        self.taskmaster.addTask(task, ctx.author.id)
         await ctx.send(S.INFO.EVENT_CREATED(eventTime.strftime(_FORMAT), message))
+    
+    @commands.command(**S.TASKS.meta)
+    async def tasks(self, ctx: commands.Context):
+        events = self.taskmaster.getTasks(ctx.author.id)
+        for event in events:
+            pass
     
     def getTZForUser(self, user: discord.User):
         try:

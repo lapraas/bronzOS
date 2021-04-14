@@ -24,7 +24,7 @@ client = commands.Bot(
     help_command=Help(verify_checks=False)
 )
 taskmaster = Taskmaster()
-cogTask = CogTask(taskmaster)
+cogTask = CogTask(client, taskmaster)
 client.add_cog(cogTask)
 
 @client.event

@@ -25,14 +25,14 @@ class ERR:
     INVALID_TZ = lambda tz: f"{tz} is not a valid time zone. " + _TZ_GUIDE
 
 CREATE = Cmd(
-    "create", "make", "add",
+    "create", "make", "add", "new",
     f"A parent command to create tasks. Use `{BOT_PREFIX}help create` for more information.",
 )
 EVENT = Cmd(
-    "event", "e",
+    "task",
     f"""
         Creates a one-time event at some point in the future.
-        The entry must have `in`, `on`, or `at` as the first word. Events created with `in` get created at a time relative to the current time. Events created with `on` or `at` get created with a specific time.
+        The entry must have `in`, `on`, or `at` as the first word. Tasks created with `in` get created at a time relative to the current time. Tasks created with `on` or `at` get created with a specific time.
         After the first word, the time for the event is defined. This can be a number and a unit abbreviation (i.e. `1h 30m`, `1yr 6mo`), or a semicolon-formatted time (i.e. `1:20pm`, `13:20`). When creating a specifically-timed event, any unit not specified will be filled in with the current date's unit (i.e. when doing `create event at 7:00pm 20th` and the date is the 2nd of March, 2024, the month and year will be set to March and 2024 respectively even though they aren't specified).
         After the time is defined, the rest of the entry is treated as the message that will be displayed when the event fires.
     """,
@@ -41,6 +41,12 @@ EVENT = Cmd(
         "at 9:25pm writing sprint",
         "on 25th Oct 2022 9:00am Jess' birthday"
     ]
+)
+TASKS = Cmd(
+    "tasks", "list",
+    f"""
+        Get a numbered list of your currently scheduled tasks.
+    """
 )
 TIMEZONE = Cmd(
     "timezone", "tz",

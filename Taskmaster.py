@@ -1,4 +1,5 @@
 
+import calendar
 import datetime as dt
 import inspect
 import re
@@ -23,6 +24,15 @@ WEEKDAYS = [
     "sat",
     "sun"
 ]
+WEEKDAYS_FULL = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday"
+]
 MONTHS = [
     "jan",
     "feb",
@@ -37,6 +47,20 @@ MONTHS = [
     "nov",
     "dec"
 ]
+MONTHS_FULL = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december"
+]
 
 timePartPat = re.compile(r"([\d|:]+)([a-zA-Z]+)")
 
@@ -46,6 +70,7 @@ class Parser:
         self.message: Optional[str] = None
         self.year: Optional[int] = None
         self.month: Optional[int] = None
+        self.weekday: Optional[int] = None
         self.day: Optional[int] = None
         self.hour: Optional[int] = None
         self.minute: Optional[int] = None
@@ -66,10 +91,17 @@ class Parser:
             timePartMatch = timePartPat.search(arg)
             if timePartMatch:
                 part = (timePartMatch.group(1), timePartMatch.group(2))
-
                 timeparts.append(part)
-                continue
-            break
+            elif arg.lower() in MONTHS:
+                timeparts.append((MONTHS.index(arg), "mo"))
+            elif arg.lower() in MONTHS_FULL:
+                timeparts.append((MONTHS_FULL.index(arg), "mo"))
+            elif arg.lower() in WEEKDAYS:
+                self.weekday = WEEKDAYS.index(arg)
+            elif arg.lower() in WEEKDAYS_FULL:
+                self.weekday = WEEKDAYS_FULL.index(arg)
+            else:
+                break
         if not timeparts:
             raise TaskException(f"The entry `{entry}` did not specify a time.")
         self.message = " ".join(args[i:])
@@ -99,7 +131,7 @@ class Parser:
             elif unit == "s":
                 self.second = int(num)
             else:
-                raise TaskException(f"The time part `{str(num) + unit}` in the entry `{entry}` had an invalid unit. Must be one of `w`, `d`, `h`, `m`, or `s`.")
+                raise TaskException(f"The time part `{str(num) + unit}` in the entry `{entry}` had an invalid unit. Must be one of `yr`, `mo`, `w`, `d`, `h`, `m`, or `s`.")
     
     def getTimeFromToday(self, today: dt.datetime):
         if self.ref in ["at", "on"]:
@@ -116,13 +148,37 @@ class Parser:
             self.hour = today.hour if self.hour == None else self.hour + today.hour
             self.minute = today.minute if self.minute == None else self.minute + today.minute
             self.second = today.second if self.second == None else self.second + today.second
+        
+        if self.weekday:
+            toAdd = self.weekday - today.weekday
+            if toAdd < 0:
+                toAdd += 7
+            self.day += toAdd
+
+        #wrap times
+        daysInMonth = calendar.monthrange(today.year, today.month)[1]
+        
+        m, self.second = divmod(self.second, 60)
+        self.minute += m
+        h, self.minute = divmod(self.minute, 60)
+        self.hour += h
+        d, self.hour = divmod(self.hour, 24)
+        self.day += d
+        # datetime starts day and month at 1 rather than 0
+        mo, self.day = divmod(self.day - 1, daysInMonth)
+        self.day += 1
+        self.month += mo
+        yr, self.month = divmod(self.month - 1, 12)
+        self.month += 1
+        self.year += yr
+
         return dt.datetime(self.year, self.month, self.day, self.hour, self.minute, self.second, tzinfo=today.tzinfo)
     
     def getMessage(self):
         return self.message
 
 
-class Event:
+class Task:
     def __init__(self, when: dt.datetime, callback: Callable[[], None], args: list=[], kwargs: dict={}):
         # What the Task will do when it fires.
         self.callback = callback
@@ -138,13 +194,15 @@ class Event:
         if time >= self.when:
             self.kill = True
             await self.fire()
+            return True
+        return False
     
     async def fire(self):
         res = self.callback(*self.callbackArgs, **self.callbackKwargs)
         if inspect.isawaitable(res):
             await res
 
-class Recur(Event):
+class Recur(Task):
     def __init__(self, when: dt.datetime, interval: dt.timedelta, callback: Callable[[], None], args: list=[], kwargs: dict={}):
         super().__init__(when, callback, args, kwargs)
         self.interval = interval
@@ -159,18 +217,37 @@ class Recur(Event):
 
 class Taskmaster:
     def __init__(self):
-        self.tasks: list[Event] = []
+        self.tasks: dict[int, list[Task]] = {}
     
-    async def update(self, time: dt.datetime):
-        index = 0
-        while index < len(self.tasks):
-            task = self.tasks[index]
-            await task.tick(time)
-            if task.kill:
-                index -= 1
-                self.tasks.remove(task)
-            index += 1
+    async def update(self, time: dt.datetime) -> list[Task]:
+        firedTasks: list[Task] = []
+        outerIndex = 0
+        userIDs = list(self.tasks.keys())
+        while outerIndex < len(userIDs):
+            userID = userIDs[outerIndex]
+            index = 0
+            tasks = self.tasks[userID]
+            while index < len(tasks):
+                task = tasks[index]
+                fired = await task.tick(time)
+                if fired:
+                    firedTasks.append(task)
+                if task.kill:
+                    index -= 1
+                    tasks.remove(task)
+                index += 1
+            if not tasks:
+                outerIndex -= 1
+                self.tasks.pop(userID)
+                userIDs.remove(userID)
+            outerIndex += 1
+        return firedTasks
     
-    def addTask(self, task: Event):
-        self.tasks.append(task)
+    def addTask(self, task: Task, userID: int):
+        if not self.tasks.get(userID):
+            self.tasks[userID] = []
+        self.tasks[userID].append(task)
+    
+    def getTasks(self, userID: int):
+        return self.tasks.get(userID)
         
