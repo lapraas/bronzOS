@@ -103,7 +103,6 @@ class TaskTime:
             if d == None: d = now.day
             if h == None: h = now.hour
             if m == None: m = now.minute
-            if s == None: s = now.second
         else:
             yr = now.year if yr == None else yr + now.year
             mo = now.month if mo == None else mo + now.month

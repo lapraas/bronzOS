@@ -96,7 +96,7 @@ class CogTask(commands.Cog, name=S.COG.NAME, description=S.COG.DESC):
     @commands.command(**S.TIMEZONE.meta)
     async def timezone(self, ctx: commands.Context, tz: Optional[str]=None):
         if not tz:
-            tzObj = self.getTZForUser(ctx.author)
+            tzObj = self.getTZForUser(ctx.author.id)
             if not tzObj:
                 await ctx.send(S.INFO.TZ_USE_THIS)
             else:
@@ -114,9 +114,9 @@ class CogTask(commands.Cog, name=S.COG.NAME, description=S.COG.DESC):
 
     @commands.command(**S.NOW.meta)
     async def now(self, ctx: commands.Context):
-        tzObj = self.getTZForUser(ctx.author)
+        tzObj = self.getTZForUser(ctx.author.id)
         if not tzObj:
-            await ctx.send(S.ERR.NO_TZ)
+            raise TaskException(S.ERR.NO_TZ)
         else:
             now = dt.datetime.now(tzObj)
             await ctx.send(S.INFO.NOW(tzObj.zone, now.strftime(_FORMAT)))
