@@ -1,12 +1,12 @@
 
-from sources.general import BOT_PREFIX, NEWLINE, stripLines, BOT_PREFIX as lap
+from sources.general import BOT_PREFIX, NEWLINE, stripLines, BOT_PREFIX as bel
 
 cogEmbed = lambda cogName, cogDescription, commandNames: {
     "title": cogName,
     "description": f"""
         {cogDescription}
         
-        Use `lap.help commandName` to get help with a specific command.
+        Use `{bel}help commandName` to get help with a specific command.
         ```
         {NEWLINE.join(commandNames)}```
     """
@@ -35,7 +35,7 @@ commandPaginationContent = lambda parentName, names, index, parentAliases=None: 
 """)
 cogPaginationContent = lambda names, index: stripLines(f"""
     **List of bot cogs**
-    Use `{lap}help (cog name)` for a more detailed list of commands for a certain cog. Note that the cog name is case-sensitive.
+    Use `{bel}help (cog name)` for a more detailed list of commands for a certain cog. Note that the cog name is case-sensitive.
     
     {indices(names, index)}
 """)

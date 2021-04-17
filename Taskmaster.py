@@ -1,19 +1,17 @@
 
+from __future__ import annotations
 import calendar
 import datetime as dt
-import inspect
+from pytz import timezone
 import re
-from types import CoroutineType
-import pytz
-from typing import Callable, Literal, Optional
+from typing import Optional, Union
+
+from sources.general import _FORMAT
 
 class TaskException(Exception):
     def __init__(self, message: str):
         super().__init__(message)
         self.message = message
-
-def isInt(string):
-    return all(c in "1234567890" for c in string)
 
 WEEKDAYS = [
     "mon",
@@ -63,191 +61,334 @@ MONTHS_FULL = [
 ]
 
 timePartPat = re.compile(r"([\d|:]+)([a-zA-Z]+)")
+RECURRING = 1
+SPECIFIC = 2
+RELATIVE = 3
 
-class Parser:
-    def __init__(self, args: list[str]):
-        self.ref: Optional[Literal["in", "on", "at"]] = None
-        self.message: Optional[str] = None
-        self.year: Optional[int] = None
-        self.month: Optional[int] = None
-        self.weekday: Optional[int] = None
-        self.day: Optional[int] = None
-        self.hour: Optional[int] = None
-        self.minute: Optional[int] = None
-        self.second: Optional[int] = None
+YEARLY = "yearly"
+MONTHLY = "monthly"
+WEEKLY = "weekly"
+DAILY = "daily"
+HOURLY = "hourly"
 
-        self.i: int = 0
+UTC = timezone("UTC")
 
-        self.parse(args)
-
-    def parse(self, args: list[str]):
-        entry = ' '.join(args)
-        self.ref, *args = args
-        if not self.ref in ["in", "on", "at"]:
-            raise TaskException(f"The entry `{entry}` had an invalid reference point `{self.ref}`. Must be one of `in`, `on`, or `at`.")
-
-        timeparts: list[re.Match] = []
-        for i, arg in enumerate(args):
-            timePartMatch = timePartPat.search(arg)
-            if timePartMatch:
-                part = (timePartMatch.group(1), timePartMatch.group(2))
-                timeparts.append(part)
-            elif arg.lower() in MONTHS:
-                timeparts.append((MONTHS.index(arg), "mo"))
-            elif arg.lower() in MONTHS_FULL:
-                timeparts.append((MONTHS_FULL.index(arg), "mo"))
-            elif arg.lower() in WEEKDAYS:
-                self.weekday = WEEKDAYS.index(arg)
-            elif arg.lower() in WEEKDAYS_FULL:
-                self.weekday = WEEKDAYS_FULL.index(arg)
-            else:
-                break
-        if not timeparts:
-            raise TaskException(f"The entry `{entry}` did not specify a time.")
-        self.message = " ".join(args[i:])
-
-        num: str
-        unit: str
-        for num, unit in timeparts:
-            if unit == "yr":
-                self.year = int(num)
-            elif unit == "mo":
-                self.month = int(num)
-            elif unit == "w":
-                self.day = int(num) * 7
-            elif unit == "d":
-                self.day = int(num)
-            elif unit == "h":
-                self.hour = int(num)
-            elif unit in ["am", "pm"] or ":" in num:
-                if ":" in num:
-                    h, m = num.split(":", 1)
-                    self.hour = int(h) + (0 if unit == "am" else 12)
-                    self.minute = int(m)
-                else:
-                    self.hour = int(num) + (0 if unit == "am" else 12)
-            elif unit == "m":
-                self.minute = int(num)
-            elif unit == "s":
-                self.second = int(num)
-            else:
-                raise TaskException(f"The time part `{str(num) + unit}` in the entry `{entry}` had an invalid unit. Must be one of `yr`, `mo`, `w`, `d`, `h`, `m`, or `s`.")
+class TaskTime:
+    def __init__(self, original: Optional[TaskTime]=None):
+        self.year: Optional[int] = original.year if original else None
+        self.month: Optional[int] = original.month if original else None
+        self.weekday: Optional[int] = original.weekday if original else None
+        self.day: Optional[int] = original.day if original else None
+        self.hour: Optional[int] = original.hour if original else None
+        self.minute: Optional[int] = original.minute if original else None
+        self.second: Optional[int] = original.second if original else None
     
-    def getTimeFromToday(self, today: dt.datetime):
-        if self.ref in ["at", "on"]:
-            if self.year == None: self.year = today.year
-            if self.month == None: self.month = today.month
-            if self.day == None: self.day = today.day
-            if self.hour == None: self.hour = today.hour
-            if self.minute == None: self.minute = today.minute
-            if self.second == None: self.second = today.second
-        else:
-            self.year = today.year if self.year == None else self.year + today.year
-            self.month = today.month if self.month == None else self.month + today.month
-            self.day = today.day if self.day == None else self.day + today.day
-            self.hour = today.hour if self.hour == None else self.hour + today.hour
-            self.minute = today.minute if self.minute == None else self.minute + today.minute
-            self.second = today.second if self.second == None else self.second + today.second
+    def hasData(self):
+        return any([x != None for x in [
+            self.year,
+            self.month,
+            self.weekday,
+            self.day,
+            self.hour,
+            self.minute,
+            self.second
+        ]])
         
+    def getTimeFromToday(self, today: dt.datetime, ref: Union[SPECIFIC, RELATIVE]) -> dt.datetime:
+        yr, mo, d, h, m, s = self.year, self.month, self.day, self.hour, self.minute, self.second
+        
+        if ref == SPECIFIC:
+            if yr == None: yr = today.year
+            if mo == None: mo = today.month
+            if d == None: d = today.day
+            if h == None: h = today.hour
+            if m == None: m = today.minute
+            if s == None: s = today.second
+        else:
+            yr = today.year if yr == None else yr + today.year
+            mo = today.month if mo == None else mo + today.month
+            d = today.day if d == None else d + today.day
+            h = today.hour if h == None else h + today.hour
+            m = today.minute if m == None else m + today.minute
+            s = today.second if s == None else s + today.second
+                
         if self.weekday:
-            toAdd = self.weekday - today.weekday
+            toAdd = self.weekday - today.weekday()
             if toAdd < 0:
                 toAdd += 7
-            self.day += toAdd
+            d += toAdd
 
         #wrap times
         daysInMonth = calendar.monthrange(today.year, today.month)[1]
         
-        m, self.second = divmod(self.second, 60)
-        self.minute += m
-        h, self.minute = divmod(self.minute, 60)
-        self.hour += h
-        d, self.hour = divmod(self.hour, 24)
-        self.day += d
+        m2, s = divmod(s, 60)
+        m += m2
+        h2, m = divmod(m, 60)
+        h += h2
+        d2, h = divmod(h, 24)
+        d += d2
         # datetime starts day and month at 1 rather than 0
-        mo, self.day = divmod(self.day - 1, daysInMonth)
-        self.day += 1
-        self.month += mo
-        yr, self.month = divmod(self.month - 1, 12)
-        self.month += 1
-        self.year += yr
+        mo2, d = divmod(d - 1, daysInMonth)
+        d += 1
+        mo += mo2
+        yr2, mo = divmod(mo - 1, 12)
+        mo += 1
+        yr += yr2
 
-        return dt.datetime(self.year, self.month, self.day, self.hour, self.minute, self.second, tzinfo=today.tzinfo)
+        return dt.datetime(yr, mo, d, h, m, s, tzinfo=today.tzinfo)
+
+class Parser:
+    def __init__(self, args: list[str]):
+        self.ref: Optional[Union[RECURRING, SPECIFIC, RELATIVE]] = None
+        self.message: Optional[str] = None
+        self.recur: bool = False
+        self.interval: Optional[str] = None
+        self.time = TaskTime()
+
+        self.i: int = 0
+
+        self.parse(args)
+    
+    def processTimePart(self, num: str, unit: str):
+
+        if unit == "yr":
+            self.time.year = int(num)
+        elif unit == "mo":
+            self.time.month = int(num)
+        elif unit == "wkd":
+            self.time.weekday = int(num)
+        elif unit == "d":
+            self.time.day = int(num)
+        elif unit == "h":
+            self.time.hour = int(num)
+        elif unit in ["am", "pm"] or (isinstance(num, str) and ":" in num):
+            if ":" in num:
+                h, m = num.split(":", 1)
+                self.time.hour = int(h) + (0 if unit == "am" else 12)
+                self.time.minute = int(m)
+            else:
+                self.time.hour = int(num) + (0 if unit == "am" else 12)
+        elif unit == "m":
+            self.time.minute = int(num)
+        elif unit == "s":
+            self.time.second = int(num)
+        else:
+            raise TaskException(f"The time part `{str(num) + unit}` had an invalid unit. Must be one of `yr`, `mo`, `w`, `d`, `h`, `m`, or `s`.")
+
+    def parse(self, args: list[str]):
+        entry = ' '.join(args)
+        ref, *args = args
+        ref = ref.lower()
+        
+        if ref in ["each", "every", "per"]:
+            self.ref = RECURRING
+        elif ref == "yearly":
+            self.ref = RECURRING
+            self.interval = YEARLY
+        elif ref == "monthly":
+            self.ref = RECURRING
+            self.interval = MONTHLY
+        elif ref == "weekly":
+            self.ref = RECURRING
+            self.interval = WEEKLY
+        elif ref == "daily":
+            self.ref = RECURRING
+            self.interval = DAILY
+        elif ref == "hourly":
+            self.ref = RECURRING
+            self.interval = HOURLY
+        elif ref in ["on", "at"]:
+            self.ref = SPECIFIC
+        elif ref in ["in"]:
+            self.ref = RELATIVE
+        else:
+            raise TaskException(f"The entry `{entry}` had an invalid reference point `{self.ref}`. Must be one of `in`, `on`, or `at`.")
+
+        for i, arg in enumerate(args):
+            timePartMatch = timePartPat.search(arg)
+            lArg = arg.lower()
+            if timePartMatch:
+                self.processTimePart(timePartMatch.group(1), timePartMatch.group(2))
+            elif lArg == "year":
+                self.interval = YEARLY
+            elif lArg == "month":
+                self.interval = MONTHLY
+            elif lArg == "week":
+                self.interval = WEEKLY
+            elif lArg == "day":
+                self.interval = DAILY
+            elif lArg == "hour":
+                self.interval = HOURLY
+            elif any([lArg.endswith(x) for x in ["st", "nd", "th"]]):
+                self.processTimePart(lArg[:-2], "d")
+            elif lArg in MONTHS:
+                self.processTimePart(MONTHS.index(lArg), "mo")
+            elif lArg in MONTHS_FULL:
+                self.processTimePart(MONTHS_FULL.index(lArg), "mo")
+            elif lArg in WEEKDAYS:
+                self.processTimePart(WEEKDAYS.index(lArg), "wkd")
+            elif lArg in WEEKDAYS_FULL:
+                self.processTimePart(WEEKDAYS_FULL.index(lArg), "wkd")
+            else:
+                break
+        if not self.time.hasData():
+            raise TaskException(f"The entry `{entry}` did not specify a time.")
+        self.message = " ".join(args[i:])
     
     def getMessage(self):
         return self.message
+    
+    def getAsTask(self, now: dt.datetime) -> Task:
+        if not self.ref == RECURRING:
+            eventTime = self.time.getTimeFromToday(now, self.ref)
+            task = Task(eventTime.astimezone(UTC), self.message)
+        else:
+            eventTime = self.time.getTimeFromToday(now, SPECIFIC) 
+            task = Recur(eventTime.astimezone(UTC), self.message, self.interval)
+        return task
 
 
 class Task:
-    def __init__(self, when: dt.datetime, callback: Callable[[], None], args: list=[], kwargs: dict={}):
-        # What the Task will do when it fires.
-        self.callback = callback
-        # What to give the callback when the Task fires.
-        self.callbackArgs = args
-        self.callbackKwargs = kwargs
+    def __init__(self, when: dt.datetime, message: str):
         # When the Task will fire.
         self.when = when
+        # The message the Task will return when it fires.
+        self.message = message
         # A flag to set when the Task is done.
         self.kill = False
     
-    async def tick(self, time: dt.datetime):
-        if time >= self.when:
+    def asjson(self):
+        obj = dict(
+            when = self.when.isoformat(),
+            message = self.message
+        )
+        return obj
+    
+    @staticmethod
+    def fromjson(obj: dict[str, Union[str, int]]):
+        when = dt.datetime.fromisoformat(obj["when"])
+        message = obj["message"]
+        return Task(when, message)
+    
+    def formatted(self, tz: timezone):
+        return f"On {self.getWhen().astimezone(tz).strftime(_FORMAT)}:"
+    
+    def getWhen(self):
+        return self.when
+    
+    def getMessage(self):
+        return self.message
+    
+    async def tick(self, now: dt.datetime):
+        if now >= self.when:
             self.kill = True
-            await self.fire()
-            return True
+            return self.fire()
         return False
     
-    async def fire(self):
-        res = self.callback(*self.callbackArgs, **self.callbackKwargs)
-        if inspect.isawaitable(res):
-            await res
-
-class Recur(Task):
-    def __init__(self, when: dt.datetime, interval: dt.timedelta, callback: Callable[[], None], args: list=[], kwargs: dict={}):
-        super().__init__(when, callback, args, kwargs)
-        self.interval = interval
-    
-    async def tick(self, time: dt.datetime):
-        if time >= self.when:
-            await self.fire()
-            self.when = self.when + self.interval
+    def fire(self):
+        return self.message
 
     def cancel(self):
         self.kill = True
 
+class Recur(Task):
+    def __init__(self, when: dt.datetime, message: str, interval: str):
+        super().__init__(when, message)
+        self.interval = interval
+    
+    def asjson(self):
+        obj = super().asjson()
+        obj["interval"] = self.interval
+        return obj
+    
+    @staticmethod
+    def fromjson(obj: dict[str, Union[str, int]]):
+        when = dt.datetime.fromisoformat(obj["when"])
+        message = obj["message"]
+        interval = obj["interval"]
+        return Recur(when, message, interval)
+    
+    def formatted(self, tz: timezone):
+        return f"On {self.getWhen().astimezone(tz).strftime(_FORMAT)}; reschedule {self.interval}:"
+    
+    async def tick(self, now: dt.datetime):
+        if now >= self.when:
+            if self.interval == YEARLY:
+                self.when = self.when.replace(year=now.year + 1)
+            elif self.interval == MONTHLY:
+                if now.month == 12:
+                    self.when = self.when.replace(year=now.year + 1, month=1)
+                else:
+                    self.when = self.when.replace(month=now.month + 1)
+            elif self.interval == WEEKLY:
+                self.when += dt.timedelta(days=7)
+            elif self.interval == DAILY:
+                self.when += dt.timedelta(days=1)
+            elif self.interval == HOURLY:
+                self.when += dt.timedelta(hours=1)
+            return self.fire()
+
 class Taskmaster:
     def __init__(self):
-        self.tasks: dict[int, list[Task]] = {}
+        self.taskLists: dict[int, list[Task]] = {}
     
-    async def update(self, time: dt.datetime) -> list[Task]:
-        firedTasks: list[Task] = []
+    def asjson(self):
+        obj = {}
+        for userID in self.taskLists:
+            tasks = self.taskLists[userID]
+            obj[str(userID)] = [task.asjson() for task in tasks]
+        return obj
+    
+    @staticmethod
+    def fromjson(obj: dict[str, list[dict[str, Union[int, str]]]]):
+        tm = Taskmaster()
+        for userID in obj:
+            tasks = []
+            typ: Optional[type[Task]] = None
+            for taskObj in obj[userID]:
+                if "interval" in taskObj:
+                    typ = Recur
+                else:
+                    typ = Task
+                tasks.append(typ.fromjson(taskObj))
+            tm.taskLists[int(userID)] = tasks
+        return tm
+    
+    async def update(self, time: dt.datetime) -> dict[int, list[str]]:
+        messages: dict[int, list[str]] = {}
         outerIndex = 0
-        userIDs = list(self.tasks.keys())
+        userIDs = list(self.taskLists.keys())
+
         while outerIndex < len(userIDs):
             userID = userIDs[outerIndex]
             index = 0
-            tasks = self.tasks[userID]
+            tasks = self.taskLists[userID]
+
             while index < len(tasks):
                 task = tasks[index]
                 fired = await task.tick(time)
                 if fired:
-                    firedTasks.append(task)
+                    if not messages.get(userID):
+                        messages[userID] = []
+                    messages[userID].append(fired)
                 if task.kill:
                     index -= 1
                     tasks.remove(task)
                 index += 1
+            
             if not tasks:
                 outerIndex -= 1
-                self.tasks.pop(userID)
+                self.taskLists.pop(userID)
                 userIDs.remove(userID)
             outerIndex += 1
-        return firedTasks
+        
+        return messages
     
     def addTask(self, task: Task, userID: int):
-        if not self.tasks.get(userID):
-            self.tasks[userID] = []
-        self.tasks[userID].append(task)
+        if not self.taskLists.get(userID):
+            self.taskLists[userID] = []
+        self.taskLists[userID].append(task)
     
     def getTasks(self, userID: int):
-        return self.tasks.get(userID)
+        return self.taskLists.get(userID)
         

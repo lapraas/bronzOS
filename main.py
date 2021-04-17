@@ -1,4 +1,5 @@
 
+from sources.general import BOT_PREFIX, MENTION_ME
 from typing import Union
 from utils import handlePaginationReaction
 from CogTask import CogTask, TaskException
@@ -23,8 +24,7 @@ client = commands.Bot(
     case_insensitive=True,
     help_command=Help(verify_checks=False)
 )
-taskmaster = Taskmaster()
-cogTask = CogTask(client, taskmaster)
+cogTask = CogTask(client)
 client.add_cog(cogTask)
 
 @client.event
@@ -45,22 +45,28 @@ async def on_reaction_add(reaction: discord.Reaction, user: Union[discord.User, 
 
 @client.event
 async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    toRaise = None
+    toSend = ""
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"You missed a required argument `{error.param.name}`.")
+        toSend += f"You missed a required argument `{error.param.name}`."
     elif isinstance(error, commands.BadUnionArgument):
-        await ctx.send(f"There was an error converting the argument `{error.param.name}`.")
+        toSend += f"There was an error converting the argument `{error.param.name}`."
     elif isinstance(error, commands.CommandNotFound):
-        await ctx.send(f"This command does not exist!")
+        toSend += f"This command does not exist!"
     elif isinstance(error, commands.CommandInvokeError):
-        error = error.original
+        error: Exception = error.original
         if isinstance(error, TaskException):
-            await ctx.send(error.message)
+            toSend += error.message
         else:
-            await ctx.send("An unexpected error occurred.")
-            raise error
+            toSend += f"An unexpected error occurred. Please let {MENTION_ME} know."
+            toRaise = error
     else:
-        await ctx.send("An unexpected error occurred.")
-        raise error
+        toSend += f"An unexpected error occurred. Please let {MENTION_ME} know."
+        toRaise = error
+    toSend += f"\nIf you need help with this command, please use `{BOT_PREFIX}help {ctx.command.name}`."
+    await ctx.send(toSend)
+    if toRaise:
+        raise toRaise
 
 @client.check
 async def globalCheck(ctx: commands.Context):

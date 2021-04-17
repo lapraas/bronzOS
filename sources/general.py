@@ -33,3 +33,5 @@ class Cmd:
         self.meta = {"name": self.name, "aliases": self.aliases, "help": self.desc}
         self.ref = f"{BOT_PREFIX}{self.name}"
         self.refF = f"`{self.ref}`"
+
+_FORMAT = "%I:%M:%S%p, %b %d (%a), %Y"

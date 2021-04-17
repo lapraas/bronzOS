@@ -6,65 +6,92 @@ import json
 from pytz import UnknownTimeZoneError, timezone
 from typing import Optional
 
+from sources.general import _FORMAT
 import sources.text as T
 from Taskmaster import Task, Parser, Taskmaster, TaskException
 
 S = T.TASK
 UTC = timezone("UTC")
-_FORMAT = "%I:%M:%S%p, %b %d (%a), %Y"
 
 class CogTask(commands.Cog, name=S.COG.NAME, description=S.COG.DESC):
-    def __init__(self, bot: commands.Bot, taskmaster: Optional[Taskmaster]):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.taskmaster = Taskmaster() if not taskmaster else taskmaster
+        with open(S.PATH.TASKMASTER, "r") as f:
+            self.taskmaster = Taskmaster.fromjson(json.load(f))
         with open(S.PATH.TZPREFS, "r") as f:
             self.tzprefs: dict[str, str] = json.load(f)
         
         self.update.start()
+
+    def writeTaskmaster(self):
+        with open(S.PATH.TASKMASTER, "w") as f:
+            json.dump(self.taskmaster.asjson(), f)
     
     @dasks.loop(seconds=1)
     async def update(self):
         time = dt.datetime.now(UTC)
-        firedTasks = await self.taskmaster.update(time)
-        for task in firedTasks:
-            pass
+        messages = await self.taskmaster.update(time)
+        if messages:
+            for userID in messages:
+                user = await self.bot.fetch_user(userID)
+                for message in messages[userID]:
+                    await user.send(S.INFO.ALERT(message))
+                    print(f"[{str(dt.datetime.now().time())[:-7]}] Task for {user.name} triggered: {message}")
+            self.writeTaskmaster()
     
-    @staticmethod
-    async def sendAlert(user: discord.User, alert: str):
-        await user.send(S.INFO.ALERT(alert))
-    
-    @commands.group(**S.CREATE.meta, invoke_without_command=True)
+    @commands.command(**S.CREATE.meta)
     async def create(self, ctx: commands.Context, *, args: str):
-        if not ctx.invoked_subcommand:
-            raise TaskException(S.ERR.INVALID_SUBCOMMAND(args[0]))
-    
-    @create.command(**S.EVENT.meta)
-    async def task(self, ctx: commands.Context, *, args: str=None):
         if not args:
             raise TaskException(S.ERR.NO_ENTRY)
         
         parser = Parser(args.split(" "))
-        timezone = self.getTZForUser(ctx.author)
-        if not timezone:
+        userTZ = self.getTZForUser(ctx.author.id)
+        if not userTZ:
             raise TaskException(S.ERR.NO_TZ)
-        eventTime = parser.getTimeFromToday(dt.datetime.now(timezone))
-        message = parser.getMessage()
-        
-        task = Task(eventTime.astimezone(UTC), CogTask.sendAlert, [ctx.author, message])
+        task = parser.getAsTask(dt.datetime.now())
         self.taskmaster.addTask(task, ctx.author.id)
-        await ctx.send(S.INFO.EVENT_CREATED(eventTime.strftime(_FORMAT), message))
+        self.writeTaskmaster()
+        await ctx.send(S.INFO.TASK_CREATED(task.getWhen().astimezone(userTZ).strftime(_FORMAT), parser.getMessage()))
     
-    @commands.command(**S.TASKS.meta)
-    async def tasks(self, ctx: commands.Context):
-        events = self.taskmaster.getTasks(ctx.author.id)
-        for event in events:
-            pass
+    def getTasksOrFail(self, userID: int):
+        tasks = self.taskmaster.getTasks(userID)
+        if not tasks:
+            raise TaskException(S.ERR.NO_TASKS)
+        return tasks
     
-    def getTZForUser(self, user: discord.User):
+    def getTZForUser(self, userID: int):
         try:
-            return timezone(self.tzprefs.get(str(user.id)))
+            return timezone(self.tzprefs.get(str(userID)))
         except UnknownTimeZoneError:
             return None
+    
+    def getTZForUserOrFail(self, userID: int):
+        tz = self.getTZForUser(userID)
+        if not tz:
+            raise TaskException(S.ERR.NO_TZ)
+        return tz
+
+    @commands.command(**S.TASKS.meta)
+    async def tasks(self, ctx: commands.Context):
+        tasks = sorted(self.getTasksOrFail(ctx.author.id), key=lambda event: event.when)
+        tz = self.getTZForUserOrFail(ctx.author.id)
+        toSend = S.INFO.TASKS_HEADER + "```\n"
+        digits = len(str(len(tasks)))
+        for i, task in enumerate(tasks):
+            i = str(i + 1)
+            spacing = (digits - len(i)) * " "
+            toSend += S.INFO.TASKS(i, spacing, task.formatted(tz), task.getMessage())
+        toSend += "```"
+        await ctx.send(toSend)
+    
+    @commands.command(**S.REMOVE.meta)
+    async def remove(self, ctx: commands.Context, index: int):
+        tasks = self.getTasksOrFail(ctx.author.id)
+        if index > len(tasks):
+            raise TaskException(S.ERR.REMOVE_OOB(index, len(tasks)))
+        task = tasks.pop(index - 1)
+        self.writeTaskmaster()
+        await ctx.send(S.INFO.REMOVE_SUCCESS(str(index), task.getMessage()))
 
     @commands.command(**S.TIMEZONE.meta)
     async def timezone(self, ctx: commands.Context, tz: Optional[str]=None):
