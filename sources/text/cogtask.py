@@ -26,9 +26,12 @@ CREATE = Cmd(
         m    | minute
         s    | second
         ```
-        Semicolon-formatted time, such as 1:20pm or 13:20, also works. When using 12-hour time, *be sure to specify am/pm.*
+        Semicolon-formatted time, such as 1:20pm or 13:20, also works. When using 12-hour time, *be sure to specify am/pm.* If you just want to specify minutes using this format (i.e. `:30`), you can.
+        Specific days will be recognized if they are spelled out fully (`monday`) or abbreviated to three characters (`mon`).
+        Specific months will be recognized if they are spelled out fully (`february`) or abbreviated to three characters (`feb`).
+        Four-digit numbers (`2021`) will be interpreted as years.
 
-        Not all units of time have to be specified for a specifically-timed task. Any units that are omitted are taken from the current date. This means that `create at 2:00pm` would create an event on the current date at 2:00 in the afternoon rather than in 2 hours, for instance.
+        Not all units of time have to be specified for a specifically-timed task. Any units that are omitted are taken from the current date, or if the task would be set in the past, the next valid date. This means that `create at 2:00pm` would create an event on the current date at 2:00 in the afternoon if it's before that time, or 2:00 in the afternoon tomorrow otherwise. As another example, `create at :00` will always create an event at the top of the upcoming hour.
 
         Repeated task parsing behaves similarly to specifically-timed task parsing, but instead of creating a one-off task, it will reschedule itself for some time in the future based on the frequency specified.
 
@@ -43,13 +46,13 @@ CREATE = Cmd(
     ]
 )
 TASKS = Cmd(
-    "tasks", "list",
+    "tasks", "list", "ls",
     f"""
         Get a numbered list of your currently scheduled tasks.
     """
 )
 REMOVE = Cmd(
-    "remove", "delete",
+    "remove", "delete", "rm", "del"
     f"""
         Remove a task from your list of scheduled tasks.
     """,

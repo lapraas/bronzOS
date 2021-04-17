@@ -94,32 +94,32 @@ class TaskTime:
             self.second
         ]])
         
-    def getTimeFromToday(self, today: dt.datetime, ref: Union[SPECIFIC, RELATIVE]) -> dt.datetime:
+    def getDatetime(self, now: dt.datetime, ref: Union[SPECIFIC, RELATIVE]) -> dt.datetime:
         yr, mo, d, h, m, s = self.year, self.month, self.day, self.hour, self.minute, self.second
         
         if ref == SPECIFIC:
-            if yr == None: yr = today.year
-            if mo == None: mo = today.month
-            if d == None: d = today.day
-            if h == None: h = today.hour
-            if m == None: m = today.minute
-            if s == None: s = today.second
+            if yr == None: yr = now.year
+            if mo == None: mo = now.month
+            if d == None: d = now.day
+            if h == None: h = now.hour
+            if m == None: m = now.minute
+            if s == None: s = now.second
         else:
-            yr = today.year if yr == None else yr + today.year
-            mo = today.month if mo == None else mo + today.month
-            d = today.day if d == None else d + today.day
-            h = today.hour if h == None else h + today.hour
-            m = today.minute if m == None else m + today.minute
-            s = today.second if s == None else s + today.second
+            yr = now.year if yr == None else yr + now.year
+            mo = now.month if mo == None else mo + now.month
+            d = now.day if d == None else d + now.day
+            h = now.hour if h == None else h + now.hour
+            m = now.minute if m == None else m + now.minute
+            s = now.second if s == None else s + now.second
                 
         if self.weekday:
-            toAdd = self.weekday - today.weekday()
+            toAdd = self.weekday - now.weekday()
             if toAdd < 0:
                 toAdd += 7
             d += toAdd
 
         #wrap times
-        daysInMonth = calendar.monthrange(today.year, today.month)[1]
+        daysInMonth = calendar.monthrange(now.year, now.month)[1]
         
         m2, s = divmod(s, 60)
         m += m2
@@ -135,7 +135,22 @@ class TaskTime:
         mo += 1
         yr += yr2
 
-        return dt.datetime(yr, mo, d, h, m, s, tzinfo=today.tzinfo)
+        datetime = dt.datetime(yr, mo, d, h, m, s, tzinfo=now.tzinfo)
+        if datetime < now:
+            if self.month != None and self.year == None:
+                yr += 1
+            elif self.weekday != None and self.month == None:
+                d += 7
+            elif self.day != None and self.month == None:
+                mo += 1
+            elif self.hour != None and self.day == None:
+                d += 1
+            elif self.minute != None and self.hour == None:
+                h += 1
+            elif self.second != None and self.minute == None:
+                m += 1
+            datetime = dt.datetime(yr, mo, d, h, m, s, tzinfo=now.tzinfo)
+        return datetime
 
 class Parser:
     def __init__(self, args: list[str]):
@@ -149,7 +164,7 @@ class Parser:
 
         self.parse(args)
     
-    def processTimePart(self, num: str, unit: str):
+    def processTimePart(self, num: Union[str, int], unit: str):
 
         if unit == "yr":
             self.time.year = int(num)
@@ -164,10 +179,13 @@ class Parser:
         elif unit in ["am", "pm"] or (isinstance(num, str) and ":" in num):
             if ":" in num:
                 h, m = num.split(":", 1)
-                self.time.hour = int(h) + (0 if unit == "am" else 12)
+                if not m:
+                    raise TaskException(f"Couldn't get a minute value from the time part `{num}`.")
+                if h:
+                    self.time.hour = int(h) + (12 if unit == "pm" else 0)
                 self.time.minute = int(m)
             else:
-                self.time.hour = int(num) + (0 if unit == "am" else 12)
+                self.time.hour = int(num) + (12 if unit == "pm" else 0)
         elif unit == "m":
             self.time.minute = int(num)
         elif unit == "s":
@@ -207,9 +225,7 @@ class Parser:
         for i, arg in enumerate(args):
             timePartMatch = timePartPat.search(arg)
             lArg = arg.lower()
-            if timePartMatch:
-                self.processTimePart(timePartMatch.group(1), timePartMatch.group(2))
-            elif lArg == "year":
+            if lArg == "year":
                 self.interval = YEARLY
             elif lArg == "month":
                 self.interval = MONTHLY
@@ -229,6 +245,12 @@ class Parser:
                 self.processTimePart(WEEKDAYS.index(lArg), "wkd")
             elif lArg in WEEKDAYS_FULL:
                 self.processTimePart(WEEKDAYS_FULL.index(lArg), "wkd")
+            elif all([n in "1234567890" for n in lArg]) and len(lArg) == 4:
+                self.processTimePart(lArg, "yr")
+            elif ":" in lArg:
+                self.processTimePart(lArg, None)
+            elif timePartMatch:
+                self.processTimePart(timePartMatch.group(1), timePartMatch.group(2))
             else:
                 break
         if not self.time.hasData():
@@ -240,10 +262,10 @@ class Parser:
     
     def getAsTask(self, now: dt.datetime) -> Task:
         if not self.ref == RECURRING:
-            eventTime = self.time.getTimeFromToday(now, self.ref)
+            eventTime = self.time.getDatetime(now, self.ref)
             task = Task(eventTime.astimezone(UTC), self.message)
         else:
-            eventTime = self.time.getTimeFromToday(now, SPECIFIC) 
+            eventTime = self.time.getDatetime(now, SPECIFIC) 
             task = Recur(eventTime.astimezone(UTC), self.message, self.interval)
         return task
 
