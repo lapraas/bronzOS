@@ -7,17 +7,14 @@ CREATE = Cmd(
     "create", "make", "add", "new", "task", "event",
     f"""
         Creates a new task with a given time.
-        This command is completely non-case-sensitive.
         This time can be relative to when the command was issued, a specific time, or a repeating time.
 
         To make a relatively-timed task, the entry must start with the word `in`.
         To make a specifically-timed task, the entry must start with either `on` or `at`.
         To make a repeated task, the entry must start with any of `yearly`, `monthly`, `weekly`, `daily`, `hourly`, `every year`, `every month`, `every week`, `every day`, or `every hour`.
 
-        Time is specified with amount-unit abbreviation pairs, such as `30m` for 30 minutes, `1h` for 1 hour, etc.. A full list of abbreviations and what they correspond to is below.
+        Time is specified with amount-unit abbreviation pairs, such as `30m` for 30 minutes, `1h` for 1 hour, etc.
         ```
-        abbr | unit
-        _____________
         yr   | year
         mo   | month
         w    | week
@@ -26,10 +23,10 @@ CREATE = Cmd(
         m    | minute
         s    | second
         ```
-        Semicolon-formatted time, such as 1:20pm or 13:20, also works. When using 12-hour time, *be sure to specify am/pm.* If you just want to specify minutes using this format (i.e. `:30`), you can.
-        Specific days will be recognized if they are spelled out fully (`monday`) or abbreviated to three characters (`mon`).
-        Specific months will be recognized if they are spelled out fully (`february`) or abbreviated to three characters (`feb`).
-        Four-digit numbers (`2021`) will be interpreted as years.
+        Semicolon-formatted time, such as 1:20pm or 13:20, also works.
+        Specific days are recognized if they are spelled out fully (`monday`) or abbreviated (`mon`).
+        Specific months are recognized if they are spelled out fully (`february`) or abbreviated (`feb`).
+        Four-digit numbers (`2021`) are interpreted as years.
 
         Not all units of time have to be specified for a specifically-timed task. Any units that are omitted are taken from the current date, or if the task would be set in the past, the next valid date. This means that `create at 2:00pm` would create an event on the current date at 2:00 in the afternoon if it's before that time, or 2:00 in the afternoon tomorrow otherwise. As another example, `create at :00` will always create an event at the top of the upcoming hour.
 
