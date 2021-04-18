@@ -247,10 +247,10 @@ class Parser:
                 self.processTimePart(WEEKDAYS_FULL.index(lArg), "wkd")
             elif all([n in "1234567890" for n in lArg]) and len(lArg) == 4:
                 self.processTimePart(lArg, "yr")
-            elif ":" in lArg:
-                self.processTimePart(lArg, None)
             elif timePartMatch:
                 self.processTimePart(timePartMatch.group(1), timePartMatch.group(2))
+            elif ":" in lArg:
+                self.processTimePart(lArg, None)
             else:
                 break
         if not self.time.hasData():
